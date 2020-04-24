@@ -7,6 +7,19 @@ from pylot.utils import time_epoch_ms
 from pylot.planning.messages import WaypointsMessage
 from pylot.planning.utils import remove_completed_waypoints
 
+# The runtimes of the EfficientDet family of models in milliseconds.
+# Taken from https://arxiv.org/abs/1911.09070
+EFFICIENTDET_RUNTIMES = {
+    "efficientdet-d0": 16,
+    "efficientdet-d1": 20,
+    "efficientdet-d2": 24,
+    "efficientdet-d3": 42,
+    "efficientdet-d4": 74,
+    "efficientdet-d5": 141,
+    "efficientdet-d6": 190,
+    "efficientdet-d7": 262
+}
+
 
 class PlanningPoseSynchronizerOperator(erdos.Operator):
     """ Synchronizes and relays waypoints and pose messages to the control
@@ -33,6 +46,8 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
             notifications from the first sensor are received.
         notify_stream2 (:py:class:`erdos.ReadStream`): Stream on which the
             notifications from the second sensor are received.
+        detector_runtime_stream (:py:class:`erdos.ReadStream`): Stream on which
+            a RuntimeMessage from the object detector is received.
         waypoints_write_stream (:py:class:`erdos.WriteStream`): Stream on which
             the waypoints matched to the given pose message are sent to the
             downstream control operator.
@@ -41,8 +56,8 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
     """
     def __init__(self, waypoints_read_stream, pose_read_stream,
                  localization_pose_stream, notify_stream1, notify_stream2,
-                 waypoints_write_stream, pose_write_stream,
-                 release_sensor_stream, flags):
+                 detector_runtime_stream, waypoints_write_stream,
+                 pose_write_stream, release_sensor_stream, flags):
         # Register callbacks on both the waypoints and the pose stream.
         waypoints_read_stream.add_callback(self.on_waypoints_update)
         pose_read_stream.add_callback(self.on_pose_update)
@@ -50,6 +65,8 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
         erdos.add_watermark_callback([notify_stream1, notify_stream2],
                                      [release_sensor_stream],
                                      self.on_sensor_ready)
+        if detector_runtime_stream:
+            detector_runtime_stream.add_callback(self.on_runtime_update)
 
         # Register watermark callback on pose and the joined stream.
         erdos.add_watermark_callback(
@@ -68,19 +85,50 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
 
         # Data used by the operator.
         self._pose_map = dict()
+        self._runtime_map = dict()
         self._waypoints = deque()
         self._first_waypoint = True
+        self._waypoint_num = 0
         self._last_highest_applicable_time = None
 
     @staticmethod
     def connect(waypoints_read_stream, pose_read_stream,
-                localization_pose_stream, notify_stream1, notify_stream2):
+                localization_pose_stream, notify_stream1, notify_stream2,
+                detector_runtime_stream):
         waypoints_write_stream = erdos.WriteStream()
         pose_write_stream = erdos.WriteStream()
         release_sensor_stream = erdos.WriteStream()
         return [
             waypoints_write_stream, pose_write_stream, release_sensor_stream
         ]
+
+    def adjust_processing_time(self, processing_time, detection_runtime):
+        """ Adjust the processing time of the message (if required). The
+        runtimes are expected to be in milliseconds.
+
+        Currently, only fixes the runtime if EfficientDet is used.
+
+        Args:
+            processing_time (int): The runtime of the pipeline.
+            detection_time (int): The runtime of the detection module.
+
+        Returns:
+            An int representing the modified runtime of the pipeline.
+        """
+        # Use the first model if multiple models are passed.
+        model_name = None
+        if isinstance(self._flags.obstacle_detection_model_names, list):
+            model_name = self._flags.obstacle_detection_model_names[0]
+        else:
+            model_name = self._flags.obstacle_detection_model_names
+
+        if model_name.startswith("efficientdet"):
+            paper_runtime = EFFICIENTDET_RUNTIMES[model_name]
+            processing_time -= (detection_runtime - paper_runtime)
+
+        # TODO (Sukrit) :: Apply a standard deviation to these results from
+        # our experiments.
+        return processing_time
 
     def on_waypoints_update(self, msg):
         """ Invoked upon receipt of a waypoints message from the pipeline.
@@ -97,12 +145,13 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
         self._logger.debug("@{}: received waypoints update.".format(
             msg.timestamp))
 
-        if self._first_waypoint:
+        if self._waypoint_num < 10:
             self._logger.debug(
                 "@{}: received first waypoint. "
                 "Skipping because the simulator might not be in sync.".format(
                     msg.timestamp))
             self._first_waypoint = False
+            self._waypoint_num += 1
             return
 
         # Retrieve the game time.
@@ -113,6 +162,18 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
 
         # Calculate and log the processing time for this waypoints message.
         processing_time = int((waypoint_recv_time - pose_recv_time) * 1000)
+        if game_time in self._runtime_map:
+            initial_processing_time = processing_time
+            processing_time = self.adjust_processing_time(
+                processing_time, self._runtime_map[game_time])
+            self._logger.debug("@[{}]: updated processing time from {} to {} "
+                               "because of a detection runtime of {}".format(
+                                   game_time, initial_processing_time,
+                                   processing_time,
+                                   self._runtime_map[game_time]))
+        else:
+            self._logger.debug(
+                "@[{}]: did not find a runtime. skipping adjust.")
         self._csv_logger.info('{},{},{},{:.4f}'.format(time_epoch_ms(),
                                                        game_time,
                                                        'end-to-end-runtime',
@@ -143,7 +204,7 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
                     msg.timestamp, applicable_time))
 
         # Delete the pose from the map.
-        del self._pose_map[game_time]
+        self._pose_map.pop(game_time, None)
 
     def on_pose_update(self, msg):
         """ Invoked when we receive a pose message from the simulation.
@@ -160,7 +221,7 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
         game_time = msg.timestamp.coordinates[0]
 
         # Save the pose message along with the time at which it was received.
-        self._pose_map[game_time] = (msg, time.time())
+        self._pose_map[game_time] = [msg, None]
 
     def on_localization_update(self, msg):
         """ Invoked upon receipt of a localization message that will lead
@@ -180,7 +241,26 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
         game_time = msg.timestamp.coordinates[0]
 
         # Save the pose message along with the time at which it was received.
-        self._pose_map[game_time] = (msg, time.time())
+        self._pose_map[game_time] = [msg, time.time()]
+
+    def on_runtime_update(self, msg):
+        """ Invoked upon receipt of a runtime message from the detector which
+        will be used to adjust the application of runtime in the simulator.
+
+        This callback logs the runtime for the given timestamp.
+
+        Args:
+            msg (:py:class:`erdos.Message`): A message containing the runtime
+                of the detector.
+        """
+        self._logger.debug("@[{}]: received runtime message.".format(
+            msg.timestamp))
+
+        # Retrieve the game time.
+        game_time = msg.timestamp.coordinates[0]
+
+        # Save the runtime from the message.
+        self._runtime_map[game_time] = msg.data
 
     def on_pose_watermark(self, timestamp, waypoint_stream, pose_stream):
         """ Invoked upon receipt of the watermark on the pose stream.
@@ -240,7 +320,8 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
         pose_stream.send(watermark)
         waypoint_stream.send(watermark)
         # Clean up the pose from the dict.
-        del self._pose_map[game_time]
+        self._pose_map.pop(game_time, None)
+        self._runtime_map.pop(game_time, None)
 
     @erdos.profile_method()
     def on_sensor_ready(self, timestamp, release_sensor_stream):
@@ -258,3 +339,10 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
         """
         self._logger.debug("@{}: the sensors are all ready.".format(timestamp))
         release_sensor_stream.send(erdos.WatermarkMessage(timestamp))
+
+        # Retrieve the game time.
+        game_time = timestamp.coordinates[0]
+
+        # Also rewrite the receive time for the pose update because the sensor
+        # callbacks might take too long.
+        self._pose_map[game_time][1] = time.time()

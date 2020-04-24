@@ -84,7 +84,7 @@ def driver():
         (imu_stream,
          _) = pylot.operator_creator.add_imu(transform, vehicle_id_stream)
 
-    obstacles_stream = \
+    obstacles_stream, runtime_stream = \
         pylot.component_creator.add_obstacle_detection(
             center_camera_stream, rgb_camera_setup, pose_stream,
             depth_stream, depth_camera_stream, ground_segmented_stream,
@@ -137,7 +137,7 @@ def driver():
             sensor_ready_stream,
         ) = pylot.operator_creator.add_planning_pose_synchronizer(
             waypoints_stream, pose_stream_for_control, pose_stream,
-            *notify_streams)
+            *notify_streams, runtime_stream)
         release_sensor_stream.set(sensor_ready_stream)
     else:
         waypoints_stream_for_control = waypoints_stream

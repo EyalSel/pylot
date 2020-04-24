@@ -32,6 +32,7 @@ class ERDOSAgent(AutonomousAgent):
         _waypoints (list(:py:class:`~pylot.utils.Transform`)): List of
             waypoints the agent receives from the challenge planner.
     """
+
     def setup(self, path_to_conf_file):
         """Setup phase. Invoked by the scenario runner."""
         flags.FLAGS([__file__, '--flagfile={}'.format(path_to_conf_file)])
@@ -259,7 +260,7 @@ def create_data_flow():
             camera_streams[RIGHT_CAMERA_NAME],
             camera_setups[CENTER_CAMERA_NAME])
 
-    obstacles_stream = pylot.operator_creator.add_obstacle_detection(
+    obstacles_stream, _ = pylot.operator_creator.add_obstacle_detection(
         camera_streams[CENTER_CAMERA_NAME], time_to_decision_loop_stream)[0]
     # Adds an operator that finds the world locations of the obstacles.
     obstacles_stream = pylot.operator_creator.add_obstacle_location_finder(
