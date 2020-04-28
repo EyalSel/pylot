@@ -221,7 +221,10 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
         game_time = msg.timestamp.coordinates[0]
 
         # Save the pose message along with the time at which it was received.
-        self._pose_map[game_time] = [msg, None]
+        if game_time in self._pose_map:
+            self._pose_map[game_time][0] = msg
+        else:
+            self._pose_map[game_time] = [msg, None]
 
     def on_localization_update(self, msg):
         """ Invoked upon receipt of a localization message that will lead
@@ -345,4 +348,7 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
 
         # Also rewrite the receive time for the pose update because the sensor
         # callbacks might take too long.
-        self._pose_map[game_time][1] = time.time()
+        if game_time in self._pose_map:
+            self._pose_map[game_time][1] = time.time()
+        else:
+            self._pose_map[game_time] = [None, time.time()]
