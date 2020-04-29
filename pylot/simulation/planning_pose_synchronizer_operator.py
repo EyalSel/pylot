@@ -130,6 +130,7 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
         # our experiments.
         return processing_time
 
+    @erdos.profile_method()
     def on_waypoints_update(self, msg):
         """ Invoked upon receipt of a waypoints message from the pipeline.
 
