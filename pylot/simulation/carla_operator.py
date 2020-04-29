@@ -228,12 +228,12 @@ class CarlaOperator(erdos.Operator):
             self._next_localization_sensor_reading = (
                 game_time +
                 int(1000 / self._flags.carla_localization_frequency))
-            #if not self._simulator_in_sync:
-            #    # If this is the first sensor reading, then tick
-            #    # one more time because the second sensor reading
-            #    # is sometimes delayed by 1 tick.
-            #    self._next_localization_sensor_reading += int(
-            #        1000 / self._flags.carla_fps)
+            if not self._simulator_in_sync:
+               # If this is the first sensor reading, then tick
+               # one more time because the second sensor reading
+               # is sometimes delayed by 1 tick.
+               self._next_localization_sensor_reading += int(
+                   1000 / self._flags.carla_fps)
         else:
             self._next_localization_sensor_reading = (
                 game_time + int(1000 / self._flags.carla_fps))
