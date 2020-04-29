@@ -54,10 +54,12 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
         pose_write_stream (:py:class:`erdos.WriteStream`): Stream that relays
             the pose messages from the CarlaOperator to the control module.
     """
+
     def __init__(self, waypoints_read_stream, pose_read_stream,
                  localization_pose_stream, notify_stream1, notify_stream2,
                  detector_runtime_stream, waypoints_write_stream,
-                 pose_write_stream, release_sensor_stream, flags):
+                 pose_write_stream, release_sensor_stream,
+                 pipeline_finish_notify_stream, flags):
         # Register callbacks on both the waypoints and the pose stream.
         waypoints_read_stream.add_callback(self.on_waypoints_update)
         pose_read_stream.add_callback(self.on_pose_update)
@@ -75,6 +77,7 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
 
         # Save the write streams.
         self._waypoints_write_stream = waypoints_write_stream
+        self._pipeline_finish_notify_stream = pipeline_finish_notify_stream
 
         # Initialize a logger.
         self._flags = flags
@@ -98,8 +101,12 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
         waypoints_write_stream = erdos.WriteStream()
         pose_write_stream = erdos.WriteStream()
         release_sensor_stream = erdos.WriteStream()
+        pipeline_finish_notify_stream = erdos.WriteStream()
         return [
-            waypoints_write_stream, pose_write_stream, release_sensor_stream
+            waypoints_write_stream,
+            pose_write_stream,
+            release_sensor_stream,
+            pipeline_finish_notify_stream,
         ]
 
     def adjust_processing_time(self, processing_time, detection_runtime):
@@ -146,6 +153,7 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
         self._logger.debug("@{}: received waypoints update.".format(
             msg.timestamp))
 
+        watermark = erdos.WatermarkMessage(msg.timestamp)
         if self._waypoint_num < 10:
             self._logger.debug(
                 "@{}: received first waypoint. "
@@ -153,6 +161,9 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
                     msg.timestamp))
             self._first_waypoint = False
             self._waypoint_num += 1
+            # Send a message on the notify stream to ask CARLA to send a new
+            # sensor stream.
+            self._pipeline_finish_notify_stream.send(watermark)
             return
 
         # Retrieve the game time.
@@ -206,6 +217,10 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
 
         # Delete the pose from the map.
         self._pose_map.pop(game_time, None)
+
+        # Send a message on the notify stream to ask CARLA to send a new
+        # sensor stream.
+        self._pipeline_finish_notify_stream.send(watermark)
 
     def on_pose_update(self, msg):
         """ Invoked when we receive a pose message from the simulation.
@@ -304,11 +319,10 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
                 WaypointsMessage(timestamp, deque([]), deque([])))
         else:
             # Send the trimmed waypoints on the write stream.
-            trimmed_waypoints, trimmed_target_speeds = \
-                remove_completed_waypoints(
-                    deepcopy(waypoints.waypoints),
-                    deepcopy(waypoints.target_speeds),
-                    pose_msg.data.transform.location)
+            trimmed_waypoints, trimmed_target_speeds = remove_completed_waypoints(
+                deepcopy(waypoints.waypoints),
+                deepcopy(waypoints.target_speeds),
+                pose_msg.data.transform.location)
             waypoints_msg = WaypointsMessage(timestamp, trimmed_waypoints,
                                              trimmed_target_speeds)
             self._waypoints_write_stream.send(waypoints_msg)

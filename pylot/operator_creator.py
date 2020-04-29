@@ -8,14 +8,17 @@ import pylot.utils
 FLAGS = flags.FLAGS
 
 
-def add_carla_bridge(control_stream, sensor_ready_stream):
+def add_carla_bridge(control_stream, sensor_ready_stream,
+                     pipeline_finish_notify_stream):
     from pylot.simulation.carla_operator import CarlaOperator
     op_config = erdos.OperatorConfig(name='carla_operator',
                                      log_file_name=FLAGS.log_file_name,
                                      csv_log_file_name=FLAGS.csv_log_file_name,
                                      profile_file_name=FLAGS.profile_file_name)
-    return erdos.connect(CarlaOperator, op_config,
-                         [control_stream, sensor_ready_stream], FLAGS)
+    return erdos.connect(
+        CarlaOperator, op_config,
+        [control_stream, sensor_ready_stream, pipeline_finish_notify_stream],
+        FLAGS)
 
 
 def add_efficientdet_obstacle_detection(camera_stream,
@@ -753,7 +756,7 @@ def add_lidar_logging(point_cloud_stream,
 
 
 def add_multiple_object_tracker_logging(
-    obstacles_stream, name='multiple_object_tracker_logger_operator'):
+        obstacles_stream, name='multiple_object_tracker_logger_operator'):
     from pylot.loggers.multiple_object_tracker_logger_operator import \
         MultipleObjectTrackerLoggerOperator
     op_config = erdos.OperatorConfig(name=name,
