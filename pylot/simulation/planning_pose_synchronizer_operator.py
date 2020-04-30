@@ -93,6 +93,7 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
         self._first_waypoint = True
         self._waypoint_num = 0
         self._last_highest_applicable_time = None
+        self._last_localization_update = None
 
     @staticmethod
     def connect(waypoints_read_stream, pose_read_stream,
@@ -153,6 +154,13 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
         self._logger.debug("@{}: received waypoints update.".format(
             msg.timestamp))
 
+        # Retrieve the game time.
+        game_time = msg.timestamp.coordinates[0]
+
+        # Ensure that a single invocation of the pipeline is happening.
+        assert self._last_localization_update == game_time, \
+                "Concurrent Execution of the pipeline."
+
         watermark = erdos.WatermarkMessage(msg.timestamp)
         if self._waypoint_num < 10:
             self._logger.debug(
@@ -165,9 +173,6 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
             # sensor stream.
             self._pipeline_finish_notify_stream.send(watermark)
             return
-
-        # Retrieve the game time.
-        game_time = msg.timestamp.coordinates[0]
 
         # Retrieve the pose message for this timestamp.
         (pose_msg, pose_recv_time) = self._pose_map[game_time]
@@ -261,6 +266,10 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
 
         # Save the pose message along with the time at which it was received.
         self._pose_map[game_time] = [msg, time.time()]
+
+        # Save the last localization message received to ensure that only a
+        # single invocation of the pipeline happens at a time.
+        self._last_localization_update = game_time
 
     def on_runtime_update(self, msg):
         """ Invoked upon receipt of a runtime message from the detector which

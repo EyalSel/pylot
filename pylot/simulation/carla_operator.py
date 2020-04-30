@@ -179,15 +179,34 @@ class CarlaOperator(erdos.Operator):
 
     def on_pipeline_finish(self, timestamp):
         print("Received pipeline finish: {}".format(timestamp))
-        # The pipeline finished for the localization event we sent, consume
-        # the next event.
-        self._consume_next_event()
+        game_time = timestamp.coordinates[0]
+        if (self._flags.carla_control_frequency == -1
+                or self._next_control_sensor_reading is None
+                or game_time == self._next_control_sensor_reading):
+            # There was supposed to be a control message for this timestamp
+            # too. Send the Pose message and continue after the control message
+            # is received.
+            watermark_msg = erdos.WatermarkMessage(timestamp)
+            self._update_next_control_pseudo_asynchronous_ticks(game_time)
+            self.__send_hero_vehicle_data(self.pose_stream_for_control,
+                                          timestamp, watermark_msg)
+            self.__update_spectactor_pose()
+        else:
+            # No pose message was supposed to be sent for this timestamp, we
+            # need to consume the next event to move the data forward.
+            self._consume_next_event()
 
+    # TODO (Sukrit) :: DEPRECATE this. We have an assert in the synchronizer
+    # to ensure that localization and cameras are in sync.
+    # I haven't seen an issue in my local deployment, but should be easy to
+    # catch now. If we don't see this error crop up, we should remove this
+    # function.
     def on_sensor_ready(self, timestamp):
         # The first sensor reading needs to be discarded because it might
         # not be correctly spaced out.
-        if not self._simulator_in_sync:
-            self._simulator_in_sync = True
+        #if not self._simulator_in_sync:
+        #    self._simulator_in_sync = True
+        pass
 
     def send_actor_data(self, msg):
         """ Callback function that gets called when the world is ticked.
@@ -204,7 +223,7 @@ class CarlaOperator(erdos.Operator):
         with erdos.profile(self.config.name + '.send_actor_data',
                            self,
                            event_data={'timestamp': str(timestamp)}):
-            localization_update, control_update = False, False
+            localization_update = False
             if (self._flags.carla_localization_frequency == -1
                     or self._next_localization_sensor_reading is None
                     or game_time == self._next_localization_sensor_reading):
@@ -220,24 +239,28 @@ class CarlaOperator(erdos.Operator):
             if self._flags.carla_mode == "pseudo-asynchronous" and (
                     self._flags.carla_control_frequency == -1
                     or self._next_control_sensor_reading is None
-                    or game_time == self._next_control_sensor_reading):
+                    or game_time == self._next_control_sensor_reading
+            ) and not localization_update:
+                # If localization update was sent for the same timestamp, wait
+                # for the pipeline to finish before sending a pose from the
+                # pipeline finish update.
                 self._update_next_control_pseudo_asynchronous_ticks(game_time)
                 self.__send_hero_vehicle_data(self.pose_stream_for_control,
                                               timestamp, watermark_msg)
                 self.__update_spectactor_pose()
-                control_update = True
 
     def _update_next_localization_pseudo_asynchronous_ticks(self, game_time):
         if self._flags.carla_localization_frequency > -1:
             self._next_localization_sensor_reading = (
                 game_time +
                 int(1000 / self._flags.carla_localization_frequency))
-            if not self._simulator_in_sync:
-                # If this is the first sensor reading, then tick
-                # one more time because the second sensor reading
-                # is sometimes delayed by 1 tick.
-                self._next_localization_sensor_reading += int(
-                    1000 / self._flags.carla_fps)
+            # TODO (Sukrit) :: DEPRECATE.
+            #if not self._simulator_in_sync:
+            #    # If this is the first sensor reading, then tick
+            #    # one more time because the second sensor reading
+            #    # is sometimes delayed by 1 tick.
+            #    self._next_localization_sensor_reading += int(
+            #        1000 / self._flags.carla_fps)
         else:
             self._next_localization_sensor_reading = (
                 game_time + int(1000 / self._flags.carla_fps))
