@@ -7,6 +7,12 @@ import pylot.utils
 
 FLAGS = flags.FLAGS
 
+# Must import pygame before EfficientDetOperator because efficientdet
+# causes import issues.
+import pygame
+from pylot.perception.detection.efficientdet_operator import \
+    EfficientDetOperator
+
 
 def add_carla_bridge(control_stream, sensor_ready_stream,
                      pipeline_finish_notify_stream):
@@ -24,8 +30,6 @@ def add_carla_bridge(control_stream, sensor_ready_stream,
 def add_efficientdet_obstacle_detection(camera_stream,
                                         time_to_decision_stream,
                                         csv_file_name=None):
-    from pylot.perception.detection.efficientdet_operator import \
-            EfficientDetOperator
     if csv_file_name is None:
         csv_file_name = FLAGS.csv_log_file_name
     op_config = erdos.OperatorConfig(name='efficientdet_operator',
@@ -97,6 +101,7 @@ def add_obstacle_location_finder(obstacles_stream, depth_stream, pose_stream,
 
 
 def add_obstacle_location_history(obstacles_stream, depth_stream, pose_stream,
+                                  ground_obstacles_stream, vehicle_id_stream
                                   camera_setup):
     """Adds an operator that finds obstacle trajectories in world coordinates.
 
@@ -125,9 +130,10 @@ def add_obstacle_location_history(obstacles_stream, depth_stream, pose_stream,
                                      csv_log_file_name=FLAGS.csv_log_file_name,
                                      profile_file_name=FLAGS.profile_file_name)
     [tracked_obstacles
-     ] = erdos.connect(ObstacleLocationHistoryOperator, op_config,
-                       [obstacles_stream, depth_stream, pose_stream], FLAGS,
-                       camera_setup)
+     ] = erdos.connect(ObstacleLocationHistoryOperator, op_config, [
+         obstacles_stream, depth_stream, pose_stream, ground_obstacles_stream,
+         vehicle_id_stream
+     ], FLAGS, camera_setup)
     return tracked_obstacles
 
 
@@ -756,7 +762,7 @@ def add_lidar_logging(point_cloud_stream,
 
 
 def add_multiple_object_tracker_logging(
-        obstacles_stream, name='multiple_object_tracker_logger_operator'):
+    obstacles_stream, name='multiple_object_tracker_logger_operator'):
     from pylot.loggers.multiple_object_tracker_logger_operator import \
         MultipleObjectTrackerLoggerOperator
     op_config = erdos.OperatorConfig(name=name,

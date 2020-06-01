@@ -294,7 +294,8 @@ def add_obstacle_tracking(center_camera_stream,
         obstacles_tracking_stream = \
             pylot.operator_creator.add_obstacle_location_history(
                 obstacles_wo_history_tracking_stream, depth_stream,
-                pose_stream, center_camera_setup)
+                pose_stream, ground_obstacles_stream, vehicle_id_stream
+                center_camera_setup)
     if FLAGS.perfect_obstacle_tracking:
         assert (pose_stream is not None
                 and ground_obstacles_stream is not None)

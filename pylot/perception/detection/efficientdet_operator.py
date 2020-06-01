@@ -36,10 +36,12 @@ class EfficientDetOperator(erdos.Operator):
         flags (absl.flags): Object to be used to access absl flags.
     """
     def __init__(self, camera_stream, time_to_decision_stream,
-                 obstacles_stream, model_names, model_paths, flags):
+                 obstacles_stream, runtime_stream, model_names, model_paths,
+                 flags):
         camera_stream.add_callback(self.on_msg_camera_stream)
         time_to_decision_stream.add_callback(self.on_time_to_decision_update)
-        erdos.add_watermark_callback([camera_stream], [obstacles_stream],
+        erdos.add_watermark_callback([camera_stream, time_to_decision_stream],
+                                     [obstacles_stream, runtime_stream],
                                      self.on_watermark)
         self._flags = flags
         self._logger = erdos.utils.setup_logging(self.config.name,
@@ -146,7 +148,7 @@ class EfficientDetOperator(erdos.Operator):
         self._frame_msgs.append(msg)
 
     @erdos.profile_method()
-    def on_watermark(self, timestamp, obstacles_stream):
+    def on_watermark(self, timestamp, obstacles_stream, runtime_stream):
         """Invoked whenever a frame message is received on the stream.
 
         Args:
@@ -161,10 +163,10 @@ class EfficientDetOperator(erdos.Operator):
                 runtime.
         """
         start_time = time.time()
-        #ttd_msg = self._ttd_msgs.popleft()
+        ttd_msg = self._ttd_msgs.popleft()
         frame_msg = self._frame_msgs.popleft()
-        #ttd, detection_deadline = ttd_msg.data
-        #self.update_model_choice(detection_deadline)
+        ttd, detection_deadline = ttd_msg.data
+        self.update_model_choice(detection_deadline)
         frame = frame_msg.frame
         inputs = frame.as_rgb_numpy_array()
         detector_start_time = time.time()
@@ -217,11 +219,11 @@ class EfficientDetOperator(erdos.Operator):
             # Only send messages on the runtime stream if we are in the
             # pseudo-asynchronous mode.
             runtime_stream.send(
-                erdos.Message(msg.timestamp, (self._model_name,
-                                              (end_time - start_time) * 1000)))
-            runtime_stream.send(erdos.WatermarkMessage(msg.timestamp))
-        obstacles_stream.send(ObstaclesMessage(msg.timestamp, obstacles, 0))
-        obstacles_stream.send(erdos.WatermarkMessage(msg.timestamp))
+                erdos.Message(timestamp, (self._model_name,
+                                          (end_time - start_time) * 1000)))
+            runtime_stream.send(erdos.WatermarkMessage(timestamp))
+        obstacles_stream.send(ObstaclesMessage(timestamp, obstacles, 0))
+        obstacles_stream.send(erdos.WatermarkMessage(timestamp))
         operator_time_total_end = time.time()
         self._logger.debug("@{}: total time spent: {}".format(
             timestamp, (operator_time_total_end - start_time) * 1000))

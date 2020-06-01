@@ -108,8 +108,14 @@ class FOTPlanningOperator(PlanningOperator):
 
         pose_msg = self._pose_msgs.popleft()
         vehicle_transform = pose_msg.data.transform
+        sensor_time = pose_msg.data.localization_time
         self._vehicle_transform = vehicle_transform
-
+        ttd_msg = self._ttd_msgs.popleft()
+        # Total ttd - time spent up to now.
+        ttd = ttd_msg.data[0] - (time.time() - sensor_time)
+        self._logger.debug('@{}: adjusting ttd from {} to {}'.format(
+            timestamp, ttd_msg.data[0], ttd))
+        self.update_hyper_parameters(timestamp, ttd)
         # get obstacles
         prediction_msg = self._prediction_msgs.popleft()
         obstacle_list = self.build_obstacle_list(vehicle_transform,

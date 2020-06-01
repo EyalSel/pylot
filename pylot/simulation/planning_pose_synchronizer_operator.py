@@ -54,7 +54,6 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
         pose_write_stream (:py:class:`erdos.WriteStream`): Stream that relays
             the pose messages from the CarlaOperator to the control module.
     """
-
     def __init__(self, waypoints_read_stream, pose_read_stream,
                  localization_pose_stream, notify_stream1, notify_stream2,
                  detector_runtime_stream, waypoints_write_stream,
@@ -110,7 +109,8 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
             pipeline_finish_notify_stream,
         ]
 
-    def adjust_processing_time(self, processing_time, detection_runtime):
+    def adjust_processing_time(self, processing_time, model_name,
+                               detection_runtime):
         """ Adjust the processing time of the message (if required). The
         runtimes are expected to be in milliseconds.
 
@@ -124,12 +124,6 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
             An int representing the modified runtime of the pipeline.
         """
         # Use the first model if multiple models are passed.
-        model_name = None
-        if isinstance(self._flags.obstacle_detection_model_names, list):
-            model_name = self._flags.obstacle_detection_model_names[0]
-        else:
-            model_name = self._flags.obstacle_detection_model_names
-
         if model_name.startswith("efficientdet"):
             paper_runtime = EFFICIENTDET_RUNTIMES[model_name]
             processing_time -= (detection_runtime - paper_runtime)
@@ -181,13 +175,13 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
         processing_time = int((waypoint_recv_time - pose_recv_time) * 1000)
         if game_time in self._runtime_map:
             initial_processing_time = processing_time
+            model_name, runtime = self._runtime_map[game_time]
             processing_time = self.adjust_processing_time(
-                processing_time, self._runtime_map[game_time])
+                processing_time, model_name, runtime)
             self._logger.debug("@[{}]: updated processing time from {} to {} "
                                "because of a detection runtime of {}".format(
                                    game_time, initial_processing_time,
-                                   processing_time,
-                                   self._runtime_map[game_time]))
+                                   processing_time, runtime))
         else:
             self._logger.debug(
                 "@[{}]: did not find a runtime. skipping adjust.")
@@ -206,13 +200,26 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
                 "@{}: waypoints will be applicable at {}".format(
                     msg.timestamp, applicable_time))
         else:
+            # The last waypoint applicable time was higher, we should
+            # purge the ones higher than this one and add this entry.
+            self._logger.debug(
+                "@[{}]: Popping the last applicable time: {}".format(
+                    msg.timestamp, self._waypoints[-1][0]))
+            assert (
+                self._waypoints.pop()[0] == self._last_highest_applicable_time)
+            while self._waypoints[-1][0] >= applicable_time:
+                self._logger.debug(
+                    "@[{}]: Popping the last applicable time: {}".format(
+                        msg.timestamp, self._waypoints[-1][0]))
+                self._waypoints.pop()
+
             # We add the applicable time to the time between localization
             # readings, and put these waypoints at that location.
-            sensor_frequency = self._flags.carla_fps
-            if self._flags.carla_localization_frequency != -1:
-                sensor_frequency = self._flags.carla_localization_frequency
-            applicable_time = self._last_highest_applicable_time + int(
-                1000 / sensor_frequency)
+            #sensor_frequency = self._flags.carla_fps
+            #if self._flags.carla_localization_frequency != -1:
+            #    sensor_frequency = self._flags.carla_localization_frequency
+            #applicable_time = self._last_highest_applicable_time + int(
+            #    1000 / sensor_frequency)
             self._last_highest_applicable_time = applicable_time
             self._waypoints.append((applicable_time, msg))
             self._logger.debug(
@@ -281,7 +288,7 @@ class PlanningPoseSynchronizerOperator(erdos.Operator):
             msg (:py:class:`erdos.Message`): A message containing the runtime
                 of the detector.
         """
-        self._logger.debug("@[{}]: received runtime message.".format(
+        self._logger.debug("@{}: received runtime message.".format(
             msg.timestamp))
 
         # Retrieve the game time.

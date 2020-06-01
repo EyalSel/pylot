@@ -112,6 +112,8 @@ def driver():
         depth_camera_stream, ground_segmented_stream, ground_obstacles_stream,
         ground_speed_limit_signs_stream, ground_stop_signs_stream,
         time_to_decision_loop_stream)
+    if runtime_stream is None:
+        runtime_stream = erdos.IngestStream()
 
     traffic_lights_stream = \
         pylot.component_creator.add_traffic_light_detection(
@@ -186,7 +188,7 @@ def driver():
             pose_stream_for_control, waypoints_stream_for_control)
 
     time_to_decision_stream = pylot.operator_creator.add_time_to_decision(
-        pose_stream, obstacles_stream)
+        pose_stream, obstacles_tracking_stream)
     time_to_decision_loop_stream.set(time_to_decision_stream)
 
     pylot.operator_creator.add_sensor_visualizers(center_camera_stream,

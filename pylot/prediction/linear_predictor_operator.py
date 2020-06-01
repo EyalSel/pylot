@@ -53,6 +53,9 @@ class LinearPredictorOperator(erdos.Operator):
         obstacle_predictions_list = []
 
         for obstacle in msg.obstacle_trajectories:
+            if len(obstacle.trajectory
+                   ) < self._flags.ignore_obstacles_with_short_history:
+                continue
             # Time step matrices used in regression.
             num_steps = min(self._flags.prediction_num_past_steps,
                             len(obstacle.trajectory))

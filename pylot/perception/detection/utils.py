@@ -1,5 +1,6 @@
 import copy
 import cv2
+import sys
 import numpy as np
 try:
     import queue as queue
@@ -625,8 +626,8 @@ def get_obstacle_locations(obstacles, depth_msg, ego_transform, camera_setup,
         return obstacles_with_location
     elif isinstance(depth_msg, DepthFrameMessage):
         depth_frame = depth_msg.frame
-        depth_frame.camera_setup.set_transform(
-            ego_transform * depth_frame.camera_setup.transform)
+        # depth_frame.camera_setup.set_transform(
+        #     ego_transform * depth_frame.camera_setup.transform)
 
         for obstacle in obstacles:
             center_point = obstacle.bounding_box.get_center_point()
@@ -643,11 +644,22 @@ def get_obstacle_locations(obstacles, depth_msg, ego_transform, camera_setup,
                         sample_points.append(sample_point)
             locations = depth_frame.get_pixel_locations(sample_points)
             # Choose the closest from the locations of the sampled points.
-            (min_distance, location) = min(
-                (location.distance(ego_transform.location), location)
-                for location in locations)
-            obstacle.transform = pylot.utils.Transform(location,
-                                                       pylot.utils.Rotation())
+            min_dist = sys.maxsize
+            closest_location = None
+            zero_location = pylot.utils.Location()
+            for location in locations:
+                dist = location.distance(zero_location)
+                if dist < min_dist:
+                    min_dist = dist
+                    closest_location = location
+            if closest_location:
+                obstacle.transform = pylot.utils.Transform(
+                    location, pylot.utils.Rotation())
+                obstacle.transform = ego_transform * obstacle.transform
+            else:
+                logger.error(
+                    'Could not find world location for obstacle {}'.format(
+                        obstacle))
         return obstacles
     else:
         raise ValueError('Unexpected depth message type')

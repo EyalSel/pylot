@@ -32,7 +32,6 @@ class ERDOSAgent(AutonomousAgent):
         _waypoints (list(:py:class:`~pylot.utils.Transform`)): List of
             waypoints the agent receives from the challenge planner.
     """
-
     def setup(self, path_to_conf_file):
         """Setup phase. Invoked by the scenario runner."""
         flags.FLAGS([__file__, '--flagfile={}'.format(path_to_conf_file)])

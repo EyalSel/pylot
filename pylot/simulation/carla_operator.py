@@ -196,17 +196,11 @@ class CarlaOperator(erdos.Operator):
             # need to consume the next event to move the data forward.
             self._consume_next_event()
 
-    # TODO (Sukrit) :: DEPRECATE this. We have an assert in the synchronizer
-    # to ensure that localization and cameras are in sync.
-    # I haven't seen an issue in my local deployment, but should be easy to
-    # catch now. If we don't see this error crop up, we should remove this
-    # function.
     def on_sensor_ready(self, timestamp):
         # The first sensor reading needs to be discarded because it might
         # not be correctly spaced out.
-        #if not self._simulator_in_sync:
-        #    self._simulator_in_sync = True
-        pass
+        if not self._simulator_in_sync:
+            self._simulator_in_sync = True
 
     def send_actor_data(self, msg):
         """ Callback function that gets called when the world is ticked.
@@ -254,13 +248,14 @@ class CarlaOperator(erdos.Operator):
             self._next_localization_sensor_reading = (
                 game_time +
                 int(1000 / self._flags.carla_localization_frequency))
-            # TODO (Sukrit) :: DEPRECATE.
-            #if not self._simulator_in_sync:
-            #    # If this is the first sensor reading, then tick
-            #    # one more time because the second sensor reading
-            #    # is sometimes delayed by 1 tick.
-            #    self._next_localization_sensor_reading += int(
-            #        1000 / self._flags.carla_fps)
+            if (not self._simulator_in_sync
+                    and self._flags.carla_localization_frequency != 8
+                    and self._flags.carla_localization_frequency != 10):
+                # If this is the first sensor reading, then tick
+                # one more time because the second sensor reading
+                # is sometimes delayed by 1 tick.
+                self._next_localization_sensor_reading += int(
+                    1000 / self._flags.carla_fps)
         else:
             self._next_localization_sensor_reading = (
                 game_time + int(1000 / self._flags.carla_fps))
@@ -282,6 +277,8 @@ class CarlaOperator(erdos.Operator):
                 (self._next_control_sensor_reading, TickEvent.SENSOR_READ))
 
     def run(self):
+        if self._flags.carla_mode == "pseudo-asynchronous":
+            self._tick_simulator_until(8000)
         self.__send_world_data()
         # Tick here once to ensure that the driver operators can get a handle
         # to the ego vehicle.
