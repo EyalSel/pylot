@@ -19,7 +19,7 @@ class CameraFrame(object):
             The camera setup used by the sensor that generated this frame.
 
     Attributes:
-        frame: A numpy array storring the frame.
+        frame: A numpy array storring the frame. (HxWxC)
         encoding (:obj:`str`): The encoding of the frame (BGR | RGB).
         camera_setup (:py:class:`~pylot.drivers.sensor_setup.CameraSetup`):
             The camera setup used by the sensor that generated this frame.
