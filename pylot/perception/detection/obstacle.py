@@ -23,7 +23,7 @@ class Obstacle(object):
             the obstacle in the world.
 
     Attributes:
-        bounding_box (:py:class:`~pylot.utisl.BoundingBox2D`): Bounding box of
+        bounding_box (:py:class:`~pylot.utils.BoundingBox2D`): Bounding box of
             the obstacle (can be 2D or 3D).
         confidence (:obj:`float`): The confidence of the detection.
         label (:obj:`str`): The label of the obstacle.
