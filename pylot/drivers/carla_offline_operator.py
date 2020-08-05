@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import pickle
 import json
+import time
 
 from pylot.perception.camera_frame import CameraFrame
 from pylot.perception.messages import FrameMessage, ObstaclesMessage
@@ -13,43 +14,65 @@ import erdos
 
 
 class OfflineCarlaSensorV1(erdos.Operator):
-    DATASET_PATH = Path("/data/sukritk/faster-rcnn-driving/training_data/"
-                        "town01_start1/TrainingDataSet/ClearNoon")
+    DATASET_PATH = Path("/home/erdos/offline_carla_data/town01_start30/"
+                        "TrainingDataSet/ClearNoon")
 
-    def __init__(self, release_sensor_stream, camera_stream,
-                 notify_reading_stream, perfect_obstacles_stream,
-                 camera_setup, flags):
+    def __init__(self, camera_stream, ground_obstacles_stream,
+                 time_to_decision_stream, camera_setup, flags):
+        self._camera_stream = camera_stream
+        self._ground_obstacles_stream = ground_obstacles_stream
+        self._time_to_decision_stream = time_to_decision_stream
+        self._logger = erdos.utils.setup_logging(self.config.name,
+                                                 self.config.log_file_name)
+
         self.image_w = camera_setup.width
         self.image_h = camera_setup.height
         assert camera_setup.camera_type == "sensor.camera.rgb", \
             camera_setup.camera_type
 
+        self.zipped_paths = self.get_json_png_pairs(self.DATASET_PATH)
+
+        self._logger.debug("Found {} json, png pairs in {}".format(
+            len(self.zipped_paths), self.DATASET_PATH
+        ))
+
+    def get_json_png_pairs(self, data_path):
         # extract file paths from directory
-        self.index = 0
-        json_files = self.DATASET_PATH.glob("*.json")
-        png_files = self.DATASET_PATH.glob("*.png")
+        json_files = list(data_path.glob("*.json"))
+        png_files = list(data_path.glob("*.png"))
 
         def get_file_number(path):
             # get fn, drop extension, split by '-' and get last value
             return int(path.stem.split("-")[-1])
 
-        # verify indices of json and png files match
-        assert sorted([get_file_number(p) for p in json_files]) == \
-               sorted([get_file_number(p) for p in png_files]), \
-               "fn numbers of json & png files in directory {} don't match".\
-               format(self.DATASET_PATH)
+        # verify some properties of the json and png file numbers
+        json_numbers = sorted([get_file_number(p) for p in json_files])
+        png_numbers = sorted([get_file_number(p) for p in png_files])
+        # all unique
+        assert np.array_equal(np.unique(json_numbers), json_numbers), \
+            "json numbers not unique in directory {}".format(data_path)
+        assert np.array_equal(np.unique(png_numbers), png_numbers), \
+            "png numbers not unique in directory {}".format(data_path)
+        only_in_json = list(set(json_numbers) - set(png_numbers))
+        only_in_png = list(set(png_numbers) - set(json_numbers))
+        assert len(only_in_json) == 0, \
+               "nonzero empty set of fn numbers only in json files in \
+                   directory {}: {}".format(data_path, only_in_json)
+        assert len(only_in_png) == 0, \
+               "nonzero empty set of fn numbers only in png files in \
+                   directory {}: {}".format(data_path, only_in_png)
 
-        self.zipped_paths = zip(sorted(json_files, key=get_file_number),
-                                sorted(png_files, key=get_file_number))
-        self.zipped_paths = list(self.zipped_paths)
+        zipped_paths = zip(sorted(json_files, key=get_file_number),
+                           sorted(png_files, key=get_file_number))
+        zipped_paths = list(zipped_paths)
+        assert len(zipped_paths) > 0, len(zipped_paths)
+        return zipped_paths
 
-    def get_messages(self, index):
-        if self.index > len(self.zipped_paths):
-            raise StopIteration()
-        json_path, png_path = self.zipped_paths[self.index]
-        self.index += 1
-
-        timestamp = erdos.Timestamp(coordinates=[self.index])  # ???
+    @erdos.profile_method()
+    def get_messages(self, index, timestamp):
+        self._logger.debug("@{}: {} releasing sensor index {}".format(
+                timestamp, self.config.name, index))
+        json_path, png_path = self.zipped_paths[index]
 
         # Get obstacles from json
         def get_obst(row):
@@ -58,7 +81,11 @@ class OfflineCarlaSensorV1(erdos.Operator):
             arg_order = np.array(bbox_coords).T.reshape(-1)  # xmn,xmx,ymn,ymx
             return Obstacle(BoundingBox2D(*arg_order), 1.0, class_label)
 
-        ground_obstacles = [get_obst(r) for r in json.load(json_path)]
+        def read_json(path):
+            with open(path, 'r') as f:
+                return json.load(f)
+
+        ground_obstacles = [get_obst(r) for r in read_json(json_path)]
         obst_message = ObstaclesMessage(timestamp, ground_obstacles)
 
         # get image from png and resize
@@ -70,27 +97,24 @@ class OfflineCarlaSensorV1(erdos.Operator):
                                           protocol=pickle.HIGHEST_PROTOCOL)
         return pickled_camera_msg, obst_message
 
-    @erdos.profile_method()
-    def release_data(self, timestamp):
-        if timestamp.is_top:
-            # The operator can always send data ASAP.
-            self._release_data = True
-        else:
-            self._logger.debug("@{}: {} releasing sensor data".format(
-                timestamp, self.config.name))
-            watermark_msg = erdos.WatermarkMessage(timestamp)
-            self._camera_stream.send_pickled(timestamp,
-                                             self._pickled_messages[timestamp])
-            # Note: The operator is set not to automatically propagate
-            # watermark messages received on input streams. Thus, we can
-            # issue watermarks only after the Carla callback is invoked.
-            self._camera_stream.send(watermark_msg)
-            with self._pickle_lock:
-                del self._pickled_messages[timestamp]
-
     @staticmethod
-    def connect(release_sensor_stream):
+    def connect():
         camera_stream = erdos.WriteStream()
-        notify_reading_stream = erdos.WriteStream()
         ground_obstacles_stream = erdos.WriteStream()
-        return [camera_stream, notify_reading_stream, ground_obstacles_stream]
+        time_to_decision_stream = erdos.WriteStream()
+        return [camera_stream, ground_obstacles_stream,
+                time_to_decision_stream]
+
+    def run(self):
+        for i in range(len(self.zipped_paths)):
+            time.sleep(0.1)
+            timestamp = erdos.Timestamp(coordinates=[i])  # ???
+            result = self.get_messages(i, timestamp)
+            print(result)
+            pickled_camera_msg, obst_message = result
+            ttd_msg = erdos.Message(timestamp, 10000)  # 10s time to decision
+            self._camera_stream.send_pickled(timestamp, pickled_camera_msg)
+            self._ground_obstacles_stream.send(obst_message)
+            self._time_to_decision_stream.send(ttd_msg)
+        while True:
+            time.sleep(10)
