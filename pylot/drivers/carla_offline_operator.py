@@ -25,6 +25,7 @@ class OfflineCarlaSensorV1(erdos.Operator):
         self._logger = erdos.utils.setup_logging(self.config.name,
                                                  self.config.log_file_name)
 
+        self._camera_setup = camera_setup
         self.image_w = camera_setup.width
         self.image_h = camera_setup.height
         assert camera_setup.camera_type == "sensor.camera.rgb", \
@@ -92,10 +93,9 @@ class OfflineCarlaSensorV1(erdos.Operator):
         img = cv2.imread(str(png_path)).astype(np.uint8)  # BGR
         resized_img = cv2.resize(img, dsize=(self.image_w, self.image_h),
                                  interpolation=cv2.INTER_CUBIC)
-        msg = FrameMessage(timestamp, CameraFrame(resized_img, "BGR"))
-        pickled_camera_msg = pickle.dumps(msg,
-                                          protocol=pickle.HIGHEST_PROTOCOL)
-        return pickled_camera_msg, obst_message
+        camera_frame = CameraFrame(resized_img, "BGR", self._camera_setup)
+        camera_msg = FrameMessage(timestamp, camera_frame)
+        return camera_msg, obst_message
 
     @staticmethod
     def connect():
@@ -109,12 +109,18 @@ class OfflineCarlaSensorV1(erdos.Operator):
         for i in range(len(self.zipped_paths)):
             time.sleep(0.1)
             timestamp = erdos.Timestamp(coordinates=[i])  # ???
-            result = self.get_messages(i, timestamp)
-            print(result)
-            pickled_camera_msg, obst_message = result
+            camera_msg, obst_message = self.get_messages(i, timestamp)
             ttd_msg = erdos.Message(timestamp, 10000)  # 10s time to decision
-            self._camera_stream.send_pickled(timestamp, pickled_camera_msg)
+
+            self._camera_stream.send(camera_msg)
+            self._camera_stream.send(erdos.WatermarkMessage(timestamp))
+
             self._ground_obstacles_stream.send(obst_message)
+            self._ground_obstacles_stream.send(
+                erdos.WatermarkMessage(timestamp))
+
             self._time_to_decision_stream.send(ttd_msg)
+            self._time_to_decision_stream.send(
+                erdos.WatermarkMessage(timestamp))
         while True:
             time.sleep(10)
