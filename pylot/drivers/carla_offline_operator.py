@@ -14,11 +14,17 @@ import erdos
 
 
 class OfflineCarlaSensorV1(erdos.Operator):
-    DATASET_PATH = Path("/home/erdos/offline_carla_data/town01_start30/"
-                        "TrainingDataSet/ClearNoon")
+    # DATASET_PATH = Path("/home/erdos/offline_carla_data/town01_start30/"
+    #                     "TrainingDataSet/ClearNoon")
+    # DATASET_PATH = Path("/data/sukritk/faster-rcnn-driving/training_data/"
+    #                     "town01_start30/TrainingDataSet/ClearNoon")
+    # DATASET_PATH = Path("/data/ges/faster-rcnn-driving/training_data/"
+    #                     "town01_start30/TrainingDataSet/ClearNoon/")
 
     def __init__(self, camera_stream, ground_obstacles_stream,
                  time_to_decision_stream, camera_setup, flags):
+        self._flags = flags
+        self.DATASET_PATH = Path(self._flags.offline_carla_dataset_path)
         self._camera_stream = camera_stream
         self._ground_obstacles_stream = ground_obstacles_stream
         self._time_to_decision_stream = time_to_decision_stream
@@ -110,7 +116,7 @@ class OfflineCarlaSensorV1(erdos.Operator):
             time.sleep(0.1)
             timestamp = erdos.Timestamp(coordinates=[i])  # ???
             camera_msg, obst_message = self.get_messages(i, timestamp)
-            ttd_msg = erdos.Message(timestamp, 10000)  # 10s time to decision
+            ttd_msg = erdos.Message(timestamp, (10000, 10000))  # 10s time to decision
 
             self._camera_stream.send(camera_msg)
             self._camera_stream.send(erdos.WatermarkMessage(timestamp))
@@ -122,5 +128,8 @@ class OfflineCarlaSensorV1(erdos.Operator):
             self._time_to_decision_stream.send(ttd_msg)
             self._time_to_decision_stream.send(
                 erdos.WatermarkMessage(timestamp))
+        time.sleep(1)  # this should hopefully give pipeline enough time to
+        # finish processing all submitted queries
         while True:
+            print(">>>>> DONE <<<<<")
             time.sleep(10)
