@@ -32,7 +32,7 @@ class DetectionOperator(erdos.Operator):
     """
     def __init__(self, camera_stream, time_to_decision_stream,
                  obstacles_stream, model_path, flags):
-        camera_stream.add_callback(self.on_msg_camera_stream,
+        camera_stream.add_callback(self.on_watermark,
                                    [obstacles_stream])
         time_to_decision_stream.add_callback(self.on_time_to_decision_update)
         self._flags = flags
@@ -94,7 +94,7 @@ class DetectionOperator(erdos.Operator):
             msg.timestamp, self.config.name, msg))
 
     @erdos.profile_method()
-    def on_msg_camera_stream(self, msg, obstacles_stream):
+    def on_watermark(self, msg, obstacles_stream):
         """Invoked whenever a frame message is received on the stream.
 
         Args:
@@ -151,10 +151,14 @@ class DetectionOperator(erdos.Operator):
         obstacles_stream.send(erdos.WatermarkMessage(msg.timestamp))
 
         if self._flags.log_detector_output:
+            start = time.time()
             msg.frame.annotate_with_bounding_boxes(msg.timestamp, obstacles,
                                                    None, self._bbox_colors)
             msg.frame.save(msg.timestamp.coordinates[0], self._flags.data_path,
                            'detector-{}'.format(self.config.name))
+            span = time.time() - start
+            self._logger.debug('@{}: {} took {}ms to save frame'.format(
+                               msg.timestamp, self.config.name, span/1000.))
 
     def __run_model(self, image_np):
         # Expand dimensions since the model expects images to have
