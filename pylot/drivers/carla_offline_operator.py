@@ -4,6 +4,8 @@ import numpy as np
 import pickle
 import json
 import time
+import os
+import signal
 
 from pylot.perception.camera_frame import CameraFrame
 from pylot.perception.messages import FrameMessage, ObstaclesMessage
@@ -128,8 +130,9 @@ class OfflineCarlaSensorV1(erdos.Operator):
             self._time_to_decision_stream.send(ttd_msg)
             self._time_to_decision_stream.send(
                 erdos.WatermarkMessage(timestamp))
-        time.sleep(1)  # this should hopefully give pipeline enough time to
+        time.sleep(4)  # this should hopefully give pipeline enough time to
         # finish processing all submitted queries
         while True:
             print(">>>>> DONE <<<<<")
+            os.kill(self._flags.parent_pid, signal.SIGINT)
             time.sleep(10)

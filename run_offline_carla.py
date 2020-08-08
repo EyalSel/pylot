@@ -1,10 +1,18 @@
 import signal
+import os
 import erdos
 import pylot
 import pylot.flags
 import pylot.operator_creator
 from absl import app, flags
 from pylot.drivers.carla_offline_operator import OfflineCarlaSensorV1
+
+flags.DEFINE_string('offline_carla_dataset_path', None, 'path to offline carla dataset')
+# flag below shouldn't be set. It's just used to pass information to the
+# OfflineCarlaSensorV1 operator so it can send a sigint and terminate the run
+# once it finished sending everything. Shitty design that violates abstraction
+# barriers, but I couldn't think up of a better way to do this.
+flags.DEFINE_integer('parent_pid', os.getpid(), "pid of parent process, don\'t set this")
 
 FLAGS = flags.FLAGS
 
