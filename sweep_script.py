@@ -1,30 +1,17 @@
 from itertools import product
 from pathlib import Path
+import argparse
+from detection_models import model_dict
 
-MODELS = [
-    "dependencies/models/obstacle_detection/faster-rcnn/frozen_inference_graph.pb",
-    "dependencies/models/obstacle_detection/efficientdet/efficientdet-d0/efficientdet-d0_frozen.pb",
-    "dependencies/models/obstacle_detection/efficientdet/efficientdet-d1/efficientdet-d1_frozen.pb",
-    "dependencies/models/obstacle_detection/efficientdet/efficientdet-d2/efficientdet-d2_frozen.pb",
-    "dependencies/models/obstacle_detection/efficientdet/efficientdet-d3/efficientdet-d3_frozen.pb",
-    "dependencies/models/obstacle_detection/efficientdet/efficientdet-d4/efficientdet-d4_frozen.pb",
-    "dependencies/models/obstacle_detection/efficientdet/efficientdet-d5/efficientdet-d5_frozen.pb",
-    "dependencies/models/obstacle_detection/efficientdet/efficientdet-d6/efficientdet-d6_frozen.pb",
-    "dependencies/models/obstacle_detection/ssdlite-mobilenet-v2/frozen_inference_graph.pb"
-]
+MODELS = list(model_dict.values())
 
-town_runs = [
-    "/data/ges/faster-rcnn-driving/training_data/town01_start30/TrainingDataSet/ClearNoon/",
-    "/data/ges/faster-rcnn-driving/training_data/town02_start1/TrainingDataSet/ClearNoon/",
-    "/data/ges/faster-rcnn-driving/training_data/town02_start80/TestDataSet/ClearNoon/",
-]
+RUNS = \
+    filter(lambda p: p.is_dir() and p.stem == "ClearNoon" and any(p.iterdir()),
+           Path("/data/ges/faster-rcnn-driving/training_data").rglob("*"))
+RUNS = list(RUNS)
 
 
 def run_config():
-    pass
-
-
-def get_numbers():
     pass
 
 
@@ -33,29 +20,53 @@ def clean_up():
 
 
 if __name__ == "__main__":
-    for model_path, run in product(MODELS, town_runs):
-        model_name = Path(model_path).parent.stem
+    parser = argparse.ArgumentParser(description='Process some integers.')
+    parser.add_argument('--save_frames', action='store_true',
+                        help='saves frames. Execution takes much longer, '
+                             'so disregard latency values')
+    args = parser.parse_args()
+
+    for model, run in product(MODELS, RUNS):
         dataset_name = "{}-{}".format(Path(run).parent.parent.stem,
                                       Path(run).parent.stem)
-        run_name = "{}-{}".format(model_name, dataset_name)
+        run_name = "{}-{}".format(model.name, dataset_name)
 
-        profile_fn_flag = "--profile_file_name=sweep_files/{}.json".format(run_name)
-        csv_log_fn_flag = "--csv_log_file_name=sweep_files/{}.csv".format(run_name)
+        profile_fn_flag = \
+            "--profile_file_name=sweep_files/{}.json".format(run_name)
+        csv_log_fn_flag = \
+            "--csv_log_file_name=sweep_files/{}.csv".format(run_name)
         log_fn_flag = "--log_file_name=sweep_files/{}.log".format(run_name)
+        result_file_flags = "{} {} {}".format(profile_fn_flag, csv_log_fn_flag,
+                                              log_fn_flag)
 
         model_path_flag = "--obstacle_detection_model_paths={}".format(
-            model_path
+            model.path
         )
         model_name_flag = "--obstacle_detection_model_names={}".format(
-            model_name
+            model.name
         )
+        label_map_flag = "--path_coco_labels={}".format(model.label_map)
+        model_flags = "{} {} {}".format(model_path_flag, model_name_flag,
+                                        label_map_flag)
+
         dataset_path_flag = "--offline_carla_dataset_path={}".format(
             run
         )
 
+        if args.save_frames:
+            Path("sweep_files/{}".format(run_name)).mkdir(exist_ok=True)
+            detector_output_flag = "--log_detector_output=True"
+            data_path_flag = "--data_path=sweep_files/{}".format(run_name)
+            save_frames_flags = \
+                "{} {}".format(detector_output_flag, data_path_flag)
+        else:
+            save_frames_flags = ""
+
         flagfile_flag = "--flagfile=configs/detection.conf"
-        print("python run_offline_carla.py {} {} {} {} {} {} {}".format(
+        print("python run_offline_carla.py {} {} {} {} {}".format(
             flagfile_flag,
-            model_path_flag, model_name_flag, dataset_path_flag,
-            profile_fn_flag, log_fn_flag,  csv_log_fn_flag
+            model_flags,
+            dataset_path_flag,
+            result_file_flags,
+            save_frames_flags
         ))
