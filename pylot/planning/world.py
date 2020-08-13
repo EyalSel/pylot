@@ -71,7 +71,7 @@ class World(object):
                                                    self.ego_transform.location,
                                                    self._goal_location)
 
-        if pose.forward_speed < 0.9:
+        if pose.forward_speed < 0.7:
             # We can't just check if forward_speed is zero because localization
             # noise can cause the forward_speed to be non zero even when the
             # ego is stopped.
@@ -419,7 +419,7 @@ class World(object):
                     speed_factor_tl = 0
         if speed_factor_tl < 1:
             dist_to_intersection = self._map.distance_to_intersection(
-                self.ego_transform.location, max_distance_to_check=15)
+                self.ego_transform.location, max_distance_to_check=20)
             if dist_to_intersection is None:
                 # Our lidar-based depth estimation does not work when
                 # we're on a hill.

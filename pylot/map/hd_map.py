@@ -14,8 +14,8 @@ import carla
 
 import erdos
 
-import pylot.utils
 from pylot.perception.detection.lane import Lane
+from pylot.utils import Location, Transform
 
 
 class HDMap(object):
@@ -43,7 +43,7 @@ class HDMap(object):
             ))
         self._grp.setup()
 
-    def get_closest_lane_waypoint(self, location):
+    def get_closest_lane_waypoint(self, location: Location):
         """Returns the road closest waypoint to location.
 
         Args:
@@ -58,12 +58,11 @@ class HDMap(object):
                                       project_to_road=True,
                                       lane_type=carla.LaneType.Any)
         if waypoint:
-            return pylot.utils.Transform.from_carla_transform(
-                waypoint.transform)
+            return Transform.from_carla_transform(waypoint.transform)
         else:
             return None
 
-    def is_intersection(self, location):
+    def is_intersection(self, location: Location):
         """Checks if a location is in an intersection.
 
         Args:
@@ -81,9 +80,16 @@ class HDMap(object):
             # mapped location.
             return False
         else:
-            return waypoint.is_junction
+            return self.__is_intersection(waypoint)
 
-    def is_on_lane(self, location):
+    def __is_intersection(self, waypoint):
+        if waypoint.is_junction:
+            return True
+        if hasattr(waypoint, 'is_intersection'):
+            return waypoint.is_intersection
+        return False
+
+    def is_on_lane(self, location: Location):
         """Checks if a location is on a lane.
 
         Args:
@@ -103,7 +109,7 @@ class HDMap(object):
         else:
             return True
 
-    def are_on_same_lane(self, location1, location2):
+    def are_on_same_lane(self, location1: Location, location2: Location):
         """Checks if two locations are on the same lane.
 
         Args:
@@ -132,7 +138,8 @@ class HDMap(object):
         else:
             # Return False if we're in intersection and the other
             # obstacle isn't.
-            if waypoint1.is_intersection and not waypoint2.is_intersection:
+            if self.__is_intersection(
+                    waypoint1) and not self.__is_intersection(waypoint2):
                 return False
             if waypoint2.lane_type == carla.LaneType.Driving:
                 # This may return True when the lane is different, but in
@@ -141,7 +148,7 @@ class HDMap(object):
                 return True
         return False
 
-    def is_on_opposite_lane(self, transform):
+    def is_on_opposite_lane(self, transform: Transform):
         """Checks if a transform is on an opposite lane.
 
         Args:
@@ -156,7 +163,7 @@ class HDMap(object):
                                       lane_type=carla.LaneType.Driving)
         if not waypoint:
             return True
-        if waypoint.is_intersection:
+        if self.__is_intersection(waypoint):
             return False
 
         # XXX(ionel): Check logic.
@@ -166,7 +173,7 @@ class HDMap(object):
         else:
             return False
 
-    def is_at_stop(self, location):
+    def is_at_stop(self, location: Location):
         """Checks if a location is close to a stop sign.
 
         Args:
@@ -183,7 +190,9 @@ class HDMap(object):
         #                               lane_type=carla.LaneType.Stop)
         raise NotImplementedError
 
-    def distance_to_intersection(self, location, max_distance_to_check=30):
+    def distance_to_intersection(self,
+                                 location: Location,
+                                 max_distance_to_check: float = 30):
         """Computes the distance (in meters) from location to an intersection.
 
         The method starts from location, moves forward until it reaches an
@@ -205,19 +214,19 @@ class HDMap(object):
         if not waypoint:
             return None
         # We're already in an intersection.
-        if waypoint.is_intersection:
+        if self.__is_intersection(waypoint):
             return 0
         for i in range(1, max_distance_to_check + 1):
             waypoints = waypoint.next(1)
             if not waypoints or len(waypoints) == 0:
                 return None
             for w in waypoints:
-                if w.is_intersection:
+                if self.__is_intersection(w):
                     return i
             waypoint = waypoints[0]
         return None
 
-    def is_on_bidirectional_lane(self, location):
+    def is_on_bidirectional_lane(self, location: Location):
         """Checks if a location is a bidirectional lane.
 
         Args:
@@ -232,7 +241,8 @@ class HDMap(object):
                                       lane_type=carla.LaneType.Bidirectional)
         return not waypoint
 
-    def must_obey_traffic_light(self, ego_location, tl_location):
+    def must_obey_traffic_light(self, ego_location: Location,
+                                tl_location: Location):
         """Checks if an ego vehicle must obey a traffic light.
 
         Args:
@@ -247,7 +257,7 @@ class HDMap(object):
         waypoint = self._get_waypoint(ego_location,
                                       project_to_road=False,
                                       lane_type=carla.LaneType.Any)
-        if waypoint and waypoint.is_intersection:
+        if waypoint and self.__is_intersection(waypoint):
             # Do not obey traffic light if ego is already in the intersection.
             return False
 
@@ -263,13 +273,14 @@ class HDMap(object):
 
         return True
 
-    def _must_obey_european_traffic_light(self, ego_transform, tl_locations,
-                                          tl_max_dist_thresh):
+    def _must_obey_european_traffic_light(self, ego_transform: Transform,
+                                          tl_locations,
+                                          tl_max_dist_thresh: float):
         ego_waypoint = self._get_waypoint(ego_transform.location,
                                           project_to_road=False,
                                           lane_type=carla.LaneType.Any)
         # We're not on a road, or we're already in the intersection. Carry on.
-        if ego_waypoint is None or ego_waypoint.is_intersection:
+        if ego_waypoint is None or self.__is_intersection(ego_waypoint):
             return (False, None)
         # Iterate through traffic lights.
         for tl_loc in tl_locations:
@@ -282,13 +293,14 @@ class HDMap(object):
                 return (True, tl_loc)
         return (False, None)
 
-    def _must_obey_american_traffic_light(self, ego_transform, tl_locations,
-                                          tl_max_dist_thresh):
+    def _must_obey_american_traffic_light(self, ego_transform: Transform,
+                                          tl_locations,
+                                          tl_max_dist_thresh: float):
         ego_waypoint = self._get_waypoint(ego_transform.location,
                                           project_to_road=False,
                                           lane_type=carla.LaneType.Any)
         # We're not on a road, or we're already in the intersection. Carry on.
-        if ego_waypoint is None or ego_waypoint.is_intersection:
+        if ego_waypoint is None or self.__is_intersection(ego_waypoint):
             return (False, None)
 
         min_angle = 25.0
@@ -305,7 +317,7 @@ class HDMap(object):
         else:
             return (False, None)
 
-    def get_lane(self, location, waypoint_precision=0.05):
+    def get_lane(self, location: Location, waypoint_precision: float = 0.05):
         lane_waypoints = []
         next_wp = [self._get_waypoint(location)]
 
@@ -324,25 +336,24 @@ class HDMap(object):
         ]
         return Lane(left_markings, right_markings)
 
-    def get_left_lane(self, location):
+    def get_left_lane(self, location: Location):
         waypoint = self._get_waypoint(location, project_to_road=False)
         if waypoint:
             left_lane_waypoint = waypoint.get_left_lane()
             if left_lane_waypoint:
-                return pylot.utils.Transform.from_carla_transform(
-                    waypoint.transform)
+                return Transform.from_carla_transform(waypoint.transform)
         return None
 
-    def get_right_lane(self, location):
+    def get_right_lane(self, location: Location):
         waypoint = self._get_waypoint(location, project_to_road=False)
         if waypoint:
             right_lane_waypoint = waypoint.get_right_lane()
             if right_lane_waypoint:
-                return pylot.utils.Transform.from_carla_transform(
-                    waypoint.transform)
+                return Transform.from_carla_transform(waypoint.transform)
         return None
 
-    def compute_waypoints(self, source_loc, destination_loc):
+    def compute_waypoints(self, source_loc: Location,
+                          destination_loc: Location):
         """Computes waypoints between two locations.
 
         Assumes that the ego vehicle has the same orientation as the lane on
@@ -370,16 +381,17 @@ class HDMap(object):
         # TODO(ionel): The planner returns several options in intersections.
         # We always take the first one, but this is not correct.
         return deque([
-            pylot.utils.Transform.from_carla_transform(waypoint[0].transform)
+            Transform.from_carla_transform(waypoint[0].transform)
             for waypoint in route
         ])
 
     def _lateral_shift(self, transform, shift):
         transform.rotation.yaw += 90
         shifted = transform.location + shift * transform.get_forward_vector()
-        return pylot.utils.Location.from_carla_location(shifted)
+        return Location.from_carla_location(shifted)
 
-    def _get_waypoint(self, location, project_to_road, lane_type):
+    def _get_waypoint(self, location: Location, project_to_road: bool,
+                      lane_type):
         try:
             waypoint = self._map.get_waypoint(location.as_carla_location(),
                                               project_to_road=project_to_road,
