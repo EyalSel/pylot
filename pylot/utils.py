@@ -572,7 +572,7 @@ class Transform(object):
             self.forward_vector = Vector3D(self.matrix[0, 0],
                                            self.matrix[1, 0], self.matrix[2,
                                                                           0])
-            pitch_r = math.asin(self.forward_vector.z)
+            pitch_r = math.asin(np.clip(self.forward_vector.z, -1, 1))
             yaw_r = math.acos(
                 np.clip(self.forward_vector.x / math.cos(pitch_r), -1, 1))
             roll_r = math.asin(
@@ -852,6 +852,8 @@ class Pose(object):
         self.velocity_vector = velocity_vector
         if localization_time is None:
             self.localization_time = time.time()
+        else:
+            self.localization_time = localization_time
 
     def __repr__(self):
         return self.__str__()

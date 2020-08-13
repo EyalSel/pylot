@@ -33,6 +33,7 @@ class World(object):
         self.timestamp = None
         self._last_stop_ego_location = None
         self._distance_since_last_full_stop = 0
+        self._num_ticks_stopped = 0
 
     def update(self,
                timestamp,
@@ -51,7 +52,13 @@ class World(object):
         for obstacle_prediction in self.obstacle_predictions:
             obstacle_prediction.to_world_coordinates(self.ego_transform)
         # Road signs are in world coordinates.
-        self.static_obstacles = static_obstacles
+        self.static_obstacles = []
+        for obstacle in static_obstacles:
+            if (obstacle.transform.location.distance(
+                    self.ego_transform.location) <=
+                    self._flags.static_obstacle_distance_threshold):
+                self.static_obstacles.append(obstacle)
+
         self._map = hd_map
         self._lanes = lanes
         self.ego_velocity_vector = pose.velocity_vector
@@ -68,9 +75,12 @@ class World(object):
             # We can't just check if forward_speed is zero because localization
             # noise can cause the forward_speed to be non zero even when the
             # ego is stopped.
-            self._distance_since_last_full_stop = 0
-            self._last_stop_ego_location = self.ego_transform.location
+            self._num_ticks_stopped += 1
+            if self._num_ticks_stopped > 10:
+                self._distance_since_last_full_stop = 0
+                self._last_stop_ego_location = self.ego_transform.location
         else:
+            self._num_ticks_stopped = 0
             if self._last_stop_ego_location is not None:
                 self._distance_since_last_full_stop = \
                     self.ego_transform.location.distance(
@@ -104,7 +114,7 @@ class World(object):
                     # Ensure the prediction is nearby.
                     if (self.ego_transform.location.l2_distance(
                             transform.location) <=
-                            self._flags.obstacle_distance_threshold):
+                            self._flags.dynamic_obstacle_distance_threshold):
                         obstacle = prediction.obstacle_trajectory.obstacle
                         obstacle_corners = \
                             obstacle.get_bounding_box_corners(
@@ -350,7 +360,7 @@ class World(object):
             # The traffic ligh is across the road. Increase the max distance.
             traffic_light_max_distance = \
                 self._flags.traffic_light_max_distance * 2.5
-            traffic_light_max_angle = self._flags.traffic_light_max_angle / 4
+            traffic_light_max_angle = self._flags.traffic_light_max_angle / 3
             american_tl = True
         else:
             self._logger.debug('Traffic light is European style')
@@ -393,10 +403,11 @@ class World(object):
                     dist_to_intersection = self._map.distance_to_intersection(
                         self.ego_transform.location, max_distance_to_check=20)
                     if (dist_to_intersection is not None
-                            and dist_to_intersection < 12
-                            and tl.bounding_box.get_width() *
-                            tl.bounding_box.get_height() > 400):
-                        speed_factor_tl = 0
+                            and dist_to_intersection < 12):
+                        if (tl.bounding_box is None
+                                or tl.bounding_box.get_width() *
+                                tl.bounding_box.get_height() > 400):
+                            speed_factor_tl = 0
                     if (dist_to_intersection is not None and tl_dist < 27
                             and 12 <= dist_to_intersection <= 20):
                         speed_factor_tl = 0
