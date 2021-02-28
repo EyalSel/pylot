@@ -168,8 +168,9 @@ class EfficientDetOperator(erdos.Operator):
             self._signitures['prediction'],
             feed_dict={self._signitures['image_arrays']: [inputs]})[0]
         detector_end_time = time.time()
+        runtime = (detector_end_time - detector_start_time) * 1000
         self._logger.debug("@{}: detector runtime {}".format(
-            timestamp, (detector_end_time - detector_start_time) * 1000))
+            timestamp, runtime))
         obstacles = []
         camera_setup = frame.camera_setup
         for _, ymin, xmin, ymax, xmax, score, _class in outputs_np:
@@ -201,7 +202,7 @@ class EfficientDetOperator(erdos.Operator):
             frame.save(timestamp.coordinates[0], self._flags.data_path,
                        'detector-{}'.format(self.config.name))
         # end_time = time.time()
-        obstacles_stream.send(ObstaclesMessage(timestamp, obstacles, 0))
+        obstacles_stream.send(ObstaclesMessage(timestamp, obstacles, runtime))
         obstacles_stream.send(erdos.WatermarkMessage(timestamp))
 
         operator_time_total_end = time.time()
