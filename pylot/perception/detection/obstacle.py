@@ -250,7 +250,7 @@ class Obstacle(object):
         ]
 
     def is_person(self):
-        return self.label == 'person'
+        return self.label in ['person', 'pedestrian']
 
     def is_speed_limit(self):
         return self.label in [
